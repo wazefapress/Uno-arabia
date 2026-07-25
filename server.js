@@ -56,21 +56,14 @@ app.post('/register', async (req, res) => {
     const { username, email, password } = req.body;
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
-        db.run(`INSERT INTO users (username, email, password, verification_code, is_verified) VALUES (?, ?, ?, ?, 0)`, 
-        [username, email, hashedPassword, code], async function(err) {
+        // تم تغيير القيمة الأخيرة إلى 1 لتفعيل الحساب مباشرة
+        db.run(`INSERT INTO users (username, email, password, is_verified) VALUES (?, ?, ?, 1)`, 
+        [username, email, hashedPassword], function(err) {
             if (err) return res.status(400).json({ error: 'اسم المستخدم أو البريد مستخدم مسبقاً.' });
-            try {
-                await transporter.sendMail({
-                    from: 'UNO Game <your-email@gmail.com>', to: email,
-                    subject: 'كود التفعيل', text: `كود التفعيل الخاص بك هو: ${code}`
-                });
-            } catch (e) { console.log("Email send error:", e); }
-            res.json({ success: true, message: 'تم التسجيل وإرسال كود التفعيل.' });
+            res.json({ success: true, message: 'تم إنشاء الحساب بنجاح، يمكنك تسجيل الدخول الآن!' });
         });
     } catch (e) { res.status(500).json({ error: 'خطأ في الخادم.' }); }
 });
-
 app.post('/verify-email', (req, res) => {
     const { email, code } = req.body;
     db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, user) => {
