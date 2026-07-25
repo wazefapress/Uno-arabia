@@ -79,13 +79,20 @@ app.post('/verify-email', (req, res) => {
 app.post('/login', (req, res) => {
     const { username, password } = req.body;
     db.get(`SELECT * FROM users WHERE username = ?`, [username], async (err, user) => {
-        if (!user || !user.is_verified || !(await bcrypt.compare(password, user.password))) {
-            return res.status(401).json({ error: 'بيانات الدخول غير صحيحة أو الحساب غير مفعل.' });
+        // تم إزالة شرط التفعيل !user.is_verified نهائياً من هنا
+        if (!user || !(await bcrypt.compare(password, user.password))) {
+            return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة.' });
         }
-        res.json({ success: true, message: 'تم الدخول', username: user.username, coins: user.uno_coins, avatar: user.avatar_id, theme: user.active_theme });
+        res.json({ 
+            success: true, 
+            message: 'تم الدخول بنجاح', 
+            username: user.username, 
+            coins: user.uno_coins, 
+            avatar: user.avatar_id, 
+            theme: user.active_theme 
+        });
     });
 });
-
 app.post('/buy-item', (req, res) => {
     const { buyer_username, target_username, item_type, item_value, cost } = req.body;
     db.get(`SELECT * FROM users WHERE username = ?`, [buyer_username], (err, buyer) => {
