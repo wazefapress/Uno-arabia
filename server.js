@@ -1,344 +1,316 @@
-const BACKEND_URL = 'https://uno-online-1.onrender.com';
-const socket = io(BACKEND_URL);
-let currentGiftData = null;
-let pendingEmailForVerification = '';
-let currentRoomCode = null;
-let selectedCardForWild = null;
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+const sqlite3 = require('sqlite3').verbose();
+const bcrypt = require('bcrypt');
+const nodemailer = require('nodemailer');
 
-window.addEventListener('DOMContentLoaded', () => {
-    checkLocalSession();
-    generateAvatarsForStore();
-});
+const app = express();
+const server = http.createServer(app);
 
-function checkLocalSession() {
-    const username = localStorage.getItem('uno_username');
-    const coins = localStorage.getItem('uno_coins') || '0';
-    const avatar = localStorage.getItem('uno_avatar') || '1';
-    const theme = localStorage.getItem('uno_theme') || 'theme-blue';
+// تفعيل CORS لطلبات Express (الـ fetch)
+app.use(cors({
+    origin: "*",
+    methods: ["GET", "POST"],
+    credentials: true
+}));
 
-    if (username) {
-        document.getElementById('hud-username').innerText = username;
-        document.getElementById('live-uno-coins').innerText = coins;
-        document.getElementById('store-username').innerText = username;
-        document.getElementById('uno-coins-balance').innerText = coins;
-        document.getElementById('profile-coins').innerText = coins;
-        document.getElementById('current-user-avatar').style.backgroundImage = `url('avatars/${avatar}.png')`;
-        document.body.className = theme;
-    }
-}
+app.use(express.json());
 
-function startSinglePlayerGame() {
-    const username = localStorage.getItem('uno_username') || 'لاعب';
-    socket.emit('createAIRoom', { username: username, totalPlayers: 2 });
-}
-
-socket.on('roomCreated', (roomCode) => {
-    currentRoomCode = roomCode;
-    document.getElementById('main-menu').style.display = 'none';
-    document.getElementById('game-screen').style.display = 'flex';
-    document.getElementById('room-code-display').innerText = `الغرفة: ${roomCode}`;
-});
-
-socket.on('gameStateUpdate', (state) => {
-    const opponentHandDiv = document.getElementById('opponent-hand');
-    opponentHandDiv.innerHTML = '';
-    for (let i = 0; i < state.opponentCardCount; i++) {
-        const cardBack = document.createElement('div');
-        cardBack.className = 'uno-card';
-        cardBack.style.background = '#e74c3c';
-        cardBack.innerText = 'UNO';
-        opponentHandDiv.appendChild(cardBack);
-    }
-    document.getElementById('opponent-cards-count').innerText = `عدد الأوراق: ${state.opponentCardCount}`;
-
-    const discardPile = document.getElementById('discard-pile');
-    const topCard = state.discardTop;
-    discardPile.className = `uno-card ${topCard.color}`;
-    discardPile.innerHTML = `<div>${topCard.value}</div><div>${topCard.value}</div>`;
-
-    const colorIndicator = document.getElementById('current-color-indicator');
-    const colorMap = { red: '#e74c3c', blue: '#3498db', green: '#2ecc71', yellow: '#f1c40f' };
-    colorIndicator.style.background = colorMap[state.currentColor] || '#fff';
-
-    const myHandDiv = document.getElementById('my-hand-container');
-    myHandDiv.innerHTML = '';
-    state.myHand.forEach((card, index) => {
-        const cardEl = document.createElement('div');
-        cardEl.className = `uno-card ${card.color}`;
-        cardEl.innerHTML = `<div>${card.value}</div><div style="text-align:center;">🃏</div><div>${card.value}</div>`;
-        cardEl.onclick = () => playCard(index, card);
-        myHandDiv.appendChild(cardEl);
-    });
-
-    const turnIndicator = document.getElementById('turn-indicator');
-    if (state.isMyTurn) {
-        turnIndicator.innerText = "دورك الآن! اختر ورقة للعب أو اسحب من الكومة.";
-        turnIndicator.style.color = "#2ecc71";
-    } else {
-        turnIndicator.innerText = "دور الكمبيوتر يفكر...";
-        turnIndicator.style.color = "#f1c40f";
+// إعدادات Socket.io مع تفعيل الـ CORS
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
     }
 });
 
-function playCard(index, card) {
-    if (card.color === 'wild') {
-        selectedCardForWild = index;
-        document.getElementById('color-picker-modal').style.display = 'flex';
-        return;
-    }
-    socket.emit('playCard', { roomCode: currentRoomCode, cardIndex: index });
-}
+const db = new sqlite3.Database('./uno_game.db');
+db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        email TEXT UNIQUE,
+        password TEXT,
+        avatar_id INTEGER DEFAULT 1,
+        active_theme TEXT DEFAULT 'theme-blue',
+        uno_coins INTEGER DEFAULT 0,
+        is_verified BOOLEAN DEFAULT 0,
+        verification_code TEXT
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS inventory (
+        user_id INTEGER,
+        item_type TEXT,
+        item_value TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )`);
+});
 
-function selectWildColor(color) {
-    document.getElementById('color-picker-modal').style.display = 'none';
-    if (selectedCardForWild !== null) {
-        socket.emit('playCard', { roomCode: currentRoomCode, cardIndex: selectedCardForWild, chosenColor: color });
-        selectedCardForWild = null;
-    }
-}
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: 'your-email@gmail.com', pass: 'your-app-password' }
+});
 
-function drawCard() {
-    socket.emit('drawCard', { roomCode: currentRoomCode });
-}
+app.post('/register', async (req, res) => {
+    const { username, email, password } = req.body;
+    try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        db.run(`INSERT INTO users (username, email, password, verification_code, is_verified) VALUES (?, ?, ?, ?, 0)`, 
+        [username, email, hashedPassword, code], async function(err) {
+            if (err) return res.status(400).json({ error: 'اسم المستخدم أو البريد مستخدم مسبقاً.' });
+            try {
+                await transporter.sendMail({
+                    from: 'UNO Game <your-email@gmail.com>', to: email,
+                    subject: 'كود التفعيل', text: `كود التفعيل الخاص بك هو: ${code}`
+                });
+            } catch (e) { console.log("Email send error:", e); }
+            res.json({ success: true, message: 'تم التسجيل وإرسال كود التفعيل.' });
+        });
+    } catch (e) { res.status(500).json({ error: 'خطأ في الخادم.' }); }
+});
 
-function leaveGame() {
-    location.reload();
-}
-
-function switchStoreTab(tab) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.store-section').forEach(s => s.classList.remove('active'));
-    if(tab === 'avatars') {
-        document.querySelectorAll('.tab-btn')[0].classList.add('active');
-        document.getElementById('avatars-section').classList.add('active');
-    } else {
-        document.querySelectorAll('.tab-btn')[1].classList.add('active');
-        document.getElementById('themes-section').classList.add('active');
-    }
-}
-
-function generateAvatarsForStore() {
-    const grid = document.getElementById('avatars-grid');
-    if (!grid) return;
-    let html = '';
-    for (let i = 1; i <= 20; i++) {
-        let price = 100 + (Math.floor(i / 5) * 100);
-        html += `
-            <div class="item-card">
-                <img src="avatars/${i}.png" class="avatar-store-img" onerror="this.src='https://cdn-icons-png.flaticon.com/512/149/149071.png'">
-                <p style="margin:2px 0; font-size:0.8rem; font-weight:bold;">شخصية ${i}</p>
-                <p style="margin:2px 0; font-size:0.8rem; color:#f39c12; font-weight:bold;">🪙 ${price}</p>
-                <button class="btn-small btn-buy" onclick="buyItem('avatar', ${i}, ${price})">شراء</button>
-                <button class="btn-small btn-gift" onclick="openGiftModal('avatar', ${i}, ${price})" style="margin-top:3px;">إهداء 🎁</button>
-            </div>
-        `;
-    }
-    grid.innerHTML = html;
-}
-
-function buyItem(type, value, cost) {
-    const username = localStorage.getItem('uno_username');
-    if (!username) { alert("يرجى تسجيل الدخول أولاً."); openLoginModal(); return; }
-
-    fetch(`${BACKEND_URL}/buy-item`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ buyer_username: username, item_type: type, item_value: value, cost: cost })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) { alert(data.message); location.reload(); }
-        else { alert(data.error || "فشل الشراء."); }
-    })
-    .catch(err => {
-        console.error("Buy Error:", err);
-        alert("تعذر الاتصال بالخادم.");
-    });
-}
-
-function openGiftModal(type, value, cost) {
-    currentGiftData = { type, value, cost };
-    document.getElementById('gift-modal').style.display = 'flex';
-}
-function closeGiftModal() {
-    currentGiftData = null;
-    document.getElementById('gift-target-username').value = '';
-    document.getElementById('gift-modal').style.display = 'none';
-}
-function confirmGift() {
-    const targetUser = document.getElementById('gift-target-username').value.trim();
-    const sender = localStorage.getItem('uno_username');
-    if (!targetUser || !sender) { alert("أدخل اسم الصديق بشكل صحيح."); return; }
-
-    fetch(`${BACKEND_URL}/buy-item`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ buyer_username: sender, target_username: targetUser, item_type: currentGiftData.type, item_value: currentGiftData.value, cost: currentGiftData.cost })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) { alert("تم إرسال الهدية بنجاح! 🎁"); closeGiftModal(); }
-        else { alert(data.error || "فشل إرسال الهدية."); }
-    })
-    .catch(err => {
-        console.error("Gift Error:", err);
-        alert("تعذر الاتصال بالخادم.");
-    });
-}
-
-function openLoginModal() { document.getElementById('login-modal').style.display = 'flex'; }
-function switchToRegister() { document.getElementById('login-modal').style.display = 'none'; document.getElementById('register-modal').style.display = 'flex'; }
-
-function submitRegister() {
-    const username = document.getElementById('reg-username').value.trim();
-    const email = document.getElementById('reg-email').value.trim();
-    const password = document.getElementById('reg-password').value.trim();
-    if (!username || !email || !password) { alert("املأ جميع الحقول."); return; }
-
-    fetch(`${BACKEND_URL}/register`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, email, password })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            alert(data.message);
-            pendingEmailForVerification = email;
-            document.getElementById('register-modal').style.display = 'none';
-            document.getElementById('verify-modal').style.display = 'flex';
-        } else { alert(data.error || "فشل التسجيل."); }
-    })
-    .catch(err => {
-        console.error("Register Error:", err);
-        alert("تعذر الاتصال بالخادم.");
-    });
-}
-
-function submitVerification() {
-    const code = document.getElementById('verify-code').value.trim();
-    fetch(`${BACKEND_URL}/verify-email`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: pendingEmailForVerification, code })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) { alert(data.message); document.getElementById('verify-modal').style.display = 'none'; openLoginModal(); }
-        else { alert(data.error || "كود غير صحيح."); }
-    })
-    .catch(err => {
-        console.error("Verify Error:", err);
-        alert("تعذر الاتصال بالخادم.");
-    });
-}
-
-function submitLogin() {
-    const username = document.getElementById('login-username').value.trim();
-    const password = document.getElementById('login-password').value.trim();
-    fetch(`${BACKEND_URL}/login`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            localStorage.setItem('uno_username', data.username);
-            localStorage.setItem('uno_coins', data.coins);
-            localStorage.setItem('uno_avatar', data.avatar);
-            localStorage.setItem('uno_theme', data.theme);
-            location.reload();
-        } else { alert(data.error || "فشل تسجيل الدخول."); }
-    })
-    .catch(err => {
-        console.error("Login Error:", err);
-        alert("تعذر الاتصال بالخادم.");
-    });
-}
-
-function openLeaderboard() {
-    document.getElementById('leaderboard-modal').style.display = 'flex';
-    fetch(`${BACKEND_URL}/leaderboard`)
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            let html = '';
-            data.leaders.forEach((u, idx) => {
-                html += `
-                    <div class="leaderboard-item">
-                        <span style="font-weight:bold; width:25px;">#${idx+1}</span>
-                        <img src="avatars/${u.avatar_id || 1}.png" class="leaderboard-avatar" onerror="this.src='https://cdn-icons-png.flaticon.com/512/149/149071.png'">
-                        <span style="font-weight:bold; flex:1; text-align:right;">${u.username}</span>
-                        <span style="color:#f39c12; font-weight:bold;">🪙 ${u.uno_coins}</span>
-                    </div>
-                `;
+app.post('/verify-email', (req, res) => {
+    const { email, code } = req.body;
+    db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, user) => {
+        if (!user) return res.status(404).json({ error: 'المستخدم غير موجود.' });
+        if (user.verification_code === code) {
+            db.run(`UPDATE users SET is_verified = 1, verification_code = NULL WHERE email = ?`, [email], () => {
+                res.json({ success: true, message: 'تم تفعيل الحساب بنجاح!' });
             });
-            document.getElementById('leaderboard-list').innerHTML = html;
+        } else { res.status(400).json({ error: 'كود التفعيل غير صحيح.' }); }
+    });
+});
+
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+    db.get(`SELECT * FROM users WHERE username = ?`, [username], async (err, user) => {
+        if (!user || !user.is_verified || !(await bcrypt.compare(password, user.password))) {
+            return res.status(401).json({ error: 'بيانات الدخول غير صحيحة أو الحساب غير مفعل.' });
         }
-    })
-    .catch(err => console.error("Leaderboard Error:", err));
+        res.json({ success: true, message: 'تم الدخول', username: user.username, coins: user.uno_coins, avatar: user.avatar_id, theme: user.active_theme });
+    });
+});
+
+app.post('/buy-item', (req, res) => {
+    const { buyer_username, target_username, item_type, item_value, cost } = req.body;
+    db.get(`SELECT * FROM users WHERE username = ?`, [buyer_username], (err, buyer) => {
+        if (!buyer || buyer.uno_coins < cost) return res.status(400).json({ error: 'رصيد العملات غير كافٍ.' });
+
+        db.run(`UPDATE users SET uno_coins = uno_coins - ? WHERE username = ?`, [cost, buyer_username]);
+        const recipient = target_username || buyer_username;
+        db.get(`SELECT id FROM users WHERE username = ?`, [recipient], (err, targetUser) => {
+            if (!targetUser) return res.status(404).json({ error: 'المستلم غير موجود.' });
+            db.run(`INSERT INTO inventory (user_id, item_type, item_value) VALUES (?, ?, ?)`, [targetUser.id, item_type, item_value]);
+            res.json({ success: true, message: 'تمت العملية بنجاح!' });
+        });
+    });
+});
+
+app.get('/leaderboard', (req, res) => {
+    db.all(`SELECT username, uno_coins, avatar_id FROM users ORDER BY uno_coins DESC LIMIT 10`, [], (err, rows) => {
+        res.json({ success: true, leaders: rows || [] });
+    });
+});
+
+app.get('/profile/:username', (req, res) => {
+    const username = req.params.username;
+    db.get(`SELECT username, email, uno_coins, avatar_id, active_theme FROM users WHERE username = ?`, [username], (err, user) => {
+        if (!user) return res.status(404).json({ error: 'المستخدم غير موجود.' });
+        db.all(`SELECT item_type, item_value FROM inventory WHERE user_id = (SELECT id FROM users WHERE username = ?)`, [username], (err, rows) => {
+            res.json({ success: true, user, inventory: rows || [] });
+        });
+    });
+});
+
+app.post('/update-active-item', (req, res) => {
+    const { username, type, value } = req.body;
+    const col = type === 'avatar' ? 'avatar_id' : 'active_theme';
+    db.run(`UPDATE users SET ${col} = ? WHERE username = ?`, [value, username], () => {
+        res.json({ success: true, message: 'تم التحديث بنجاح!' });
+    });
+});
+
+const rooms = {};
+function generateRoomCode() { return Math.random().toString(36).substring(2, 8).toUpperCase(); }
+
+function createDeck() {
+    const colors = ['red', 'blue', 'green', 'yellow'];
+    let deck = [];
+    colors.forEach(color => {
+        deck.push({ color, value: '0' });
+        for (let i = 1; i <= 9; i++) {
+            deck.push({ color, value: i.toString() });
+            deck.push({ color, value: i.toString() });
+        }
+        ['skip', 'reverse', 'draw2'].forEach(special => {
+            deck.push({ color, value: special });
+            deck.push({ color, value: special });
+        });
+    });
+    for (let i = 0; i < 4; i++) {
+        deck.push({ color: 'wild', value: 'wild' });
+        deck.push({ color: 'wild', value: 'draw4' });
+    }
+    return deck.sort(() => Math.random() - 0.5);
 }
 
-function openProfileModal() {
-    const username = localStorage.getItem('uno_username');
-    if (!username) { alert("سجل الدخول أولاً."); openLoginModal(); return; }
-    document.getElementById('profile-modal').style.display = 'flex';
+function sendGameState(roomCode) {
+    const room = rooms[roomCode];
+    if (!room) return;
 
-    fetch(`${BACKEND_URL}/profile/${username}`)
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            document.getElementById('profile-username').innerText = data.user.username;
-            document.getElementById('profile-email').innerText = data.user.email;
-            document.getElementById('profile-coins').innerText = data.user.uno_coins;
-            document.getElementById('profile-avatar-container').style.backgroundImage = `url('avatars/${data.user.avatar_id}.png')`;
-
-            let html = '';
-            data.inventory.forEach(item => {
-                let active = (item.item_type === 'avatar' && parseInt(item.item_value) === data.user.avatar_id) || (item.item_type === 'theme' && item.item_value === data.user.active_theme);
-                html += `
-                    <div class="inventory-card ${active ? 'active-item' : ''}" onclick="setActiveItem('${item.item_type}', '${item.item_value}')">
-                        <div class="inventory-thumb" style="${item.item_type === 'avatar' ? `background-image: url('avatars/${item.item_value}.png')` : 'background:#3498db;'}"></div>
-                        <span style="font-size:0.7rem; font-weight:bold; color:#333;">${item.item_type === 'avatar' ? 'شخصية ' + item.item_value : 'ثيم طاولة'}</span>
-                    </div>
-                `;
+    room.players.forEach(playerId => {
+        if (!playerId.startsWith('AI_BOT')) {
+            io.to(playerId).emit('gameStateUpdate', {
+                myHand: room.hands[playerId],
+                opponentCardCount: room.hands['AI_BOT_1'].length,
+                discardTop: room.discardPile[room.discardPile.length - 1],
+                currentColor: room.currentColor,
+                isMyTurn: room.turnIndex === room.players.indexOf(playerId)
             });
-            document.getElementById('profile-inventory-list').innerHTML = html;
         }
-    })
-    .catch(err => console.error("Profile Error:", err));
+    });
 }
 
-function setActiveItem(type, value) {
-    const username = localStorage.getItem('uno_username');
-    fetch(`${BACKEND_URL}/update-active-item`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, type, value })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            alert(data.message);
-            if (type === 'theme') { localStorage.setItem('uno_theme', value); document.body.className = value; }
-            openProfileModal();
+function handleRoundWin(roomCode, winnerId) {
+    const room = rooms[roomCode];
+    let pointsWon = 50;
+    room.players.forEach(pid => {
+        if (pid !== winnerId && room.hands[pid]) {
+            room.hands[pid].forEach(card => {
+                pointsWon += parseInt(card.value) || 20;
+            });
         }
-    })
-    .catch(err => console.error("Update Item Error:", err));
+    });
+
+    if (!winnerId.startsWith('AI_BOT')) {
+        const username = room.playerNames[winnerId];
+        db.run(`UPDATE users SET uno_coins = uno_coins + ? WHERE username = ?`, [pointsWon, username], () => {
+            db.get(`SELECT uno_coins FROM users WHERE username = ?`, [username], (err, row) => {
+                if (row) {
+                    io.to(winnerId).emit('updateCoinBalance', { newCoins: row.uno_coins, earned: pointsWon });
+                }
+            });
+        });
+    }
+
+    io.to(roomCode).emit('roundOver', {
+        winnerId,
+        winnerName: room.playerNames[winnerId],
+        pointsWon
+    });
+    delete rooms[roomCode];
 }
 
-socket.on('updateCoinBalance', (data) => {
-    localStorage.setItem('uno_coins', data.newCoins);
-    document.getElementById('live-uno-coins').innerText = data.newCoins;
-    showFloatingReward(`+${data.earned} 🪙 تم اضافتها لرصيدك!`);
+io.on('connection', (socket) => {
+    socket.on('createAIRoom', (data) => {
+        const username = data.username || 'لاعب';
+        const roomCode = generateRoomCode();
+        const players = [socket.id, 'AI_BOT_1'];
+        const playerNames = { [socket.id]: username, 'AI_BOT_1': 'الكمبيوتر 🤖' };
+        const deck = createDeck();
+        const hands = {
+            [socket.id]: deck.splice(0, 7),
+            'AI_BOT_1': deck.splice(0, 7)
+        };
+        let discardPile = [deck.pop()];
+        while (discardPile[0].color === 'wild') {
+            deck.push(discardPile.pop());
+            discardPile.push(deck.pop());
+        }
+
+        rooms[roomCode] = {
+            code: roomCode,
+            players,
+            playerNames,
+            deck,
+            discardPile,
+            hands,
+            currentColor: discardPile[0].color,
+            turnIndex: 0
+        };
+
+        socket.join(roomCode);
+        socket.emit('roomCreated', roomCode);
+        sendGameState(roomCode);
+    });
+
+    socket.on('playCard', (data) => {
+        const { roomCode, cardIndex, chosenColor } = data;
+        const room = rooms[roomCode];
+        if (!room || room.players[room.turnIndex] !== socket.id) return;
+
+        const hand = room.hands[socket.id];
+        const card = hand[cardIndex];
+        const topCard = room.discardPile[room.discardPile.length - 1];
+
+        const isValid = card.color === 'wild' || card.color === room.currentColor || card.value === topCard.value;
+        if (!isValid) return;
+
+        hand.splice(cardIndex, 1);
+        room.discardPile.push(card);
+
+        if (card.color === 'wild') {
+            room.currentColor = chosenColor || 'red';
+        } else {
+            room.currentColor = card.color;
+        }
+
+        if (hand.length === 0) {
+            handleRoundWin(roomCode, socket.id);
+            return;
+        }
+
+        room.turnIndex = 1;
+        sendGameState(roomCode);
+
+        setTimeout(() => {
+            if (!rooms[roomCode]) return;
+            const aiHand = rooms[roomCode].hands['AI_BOT_1'];
+            let played = false;
+            for (let i = 0; i < aiHand.length; i++) {
+                const c = aiHand[i];
+                const currentTop = rooms[roomCode].discardPile[rooms[roomCode].discardPile.length - 1];
+                if (c.color === 'wild' || c.color === rooms[roomCode].currentColor || c.value === currentTop.value) {
+                    aiHand.splice(i, 1);
+                    rooms[roomCode].discardPile.push(c);
+                    if (c.color === 'wild') {
+                        const colors = ['red', 'blue', 'green', 'yellow'];
+                        rooms[roomCode].currentColor = colors[Math.floor(Math.random() * colors.length)];
+                    } else {
+                        rooms[roomCode].currentColor = c.color;
+                    }
+                    played = true;
+                    break;
+                }
+            }
+
+            if (!played) {
+                if (rooms[roomCode].deck.length === 0) rooms[roomCode].deck = createDeck();
+                aiHand.push(rooms[roomCode].deck.pop());
+            }
+
+            if (aiHand.length === 0) {
+                handleRoundWin(roomCode, 'AI_BOT_1');
+                return;
+            }
+
+            rooms[roomCode].turnIndex = 0;
+            sendGameState(roomCode);
+        }, 1500);
+    });
+
+    socket.on('drawCard', (data) => {
+        const { roomCode } = data;
+        const room = rooms[roomCode];
+        if (!room || room.players[room.turnIndex] !== socket.id) return;
+
+        if (room.deck.length === 0) room.deck = createDeck();
+        room.hands[socket.id].push(room.deck.pop());
+        sendGameState(roomCode);
+    });
 });
 
-socket.on('roundOver', (data) => {
-    alert(`انتهت الجولة! الفائز هو: ${data.winnerName} وقد ربح ${data.pointsWon} عملة/نقطة.`);
-    location.reload();
-});
-
-function showFloatingReward(text) {
-    const div = document.createElement('div');
-    div.innerText = text;
-    div.style.cssText = "position: fixed; top: 20%; left: 50%; transform: translateX(-50%); background: #2ecc71; color: white; padding: 10px 20px; border-radius: 20px; font-weight: bold; z-index: 3000; box-shadow: 0 4px 10px rgba(0,0,0,0.3);";
-    document.body.appendChild(div);
-    setTimeout(() => div.remove(), 10000);
-}
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => { console.log(`الخادم يعمل على المنفذ ${PORT}`); });
