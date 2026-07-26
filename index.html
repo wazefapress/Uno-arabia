@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>لعبة الأونو المتكاملة</title>
+    <link rel="stylesheet" href="style.css">
+      <!-- التصميم الخارجي -->
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- مكتبة Socket.io للعميل -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+    <!-- 🎵 مكتبة Howler.js للأصوات -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
+    
+    <!-- 🎬 مكتبة GSAP للمؤثرات الحركية -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+</head>
+<body class="theme-blue">
+
+    <!-- تنبيه تدوير الشاشة -->
+    <div id="rotate-warning" style="display: none;">
+        <h2>يرجى تدوير هاتفك إلى الوضع العمودي (Portrait) للعب 📱</h2>
+    </div>
+
+    <!-- القائمة الرئيسية -->
+    <div id="main-menu" class="screen">
+        <h1>لعبة الأونو 🃏</h1>
+        
+        <div id="game-hud" style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: rgba(0,0,0,0.5); color: white; border-radius: 8px; margin-bottom: 15px; width: 80%;">
+            <div id="hud-username" style="font-weight: bold; font-size: 0.9rem;">الزائر</div>
+            <div style="font-weight: bold; color: #f39c12;">🪙 <span id="live-uno-coins">0</span></div>
+        </div>
+
+        <button class="btn" style="background-color: #2ecc71; width: 80%; margin-bottom: 15px;" onclick="openLoginModal()">تسجيل الدخول / إنشاء حساب 🔑</button>
+        <button class="btn" style="background-color: #3498db; width: 80%; margin-bottom: 15px;" onclick="startSinglePlayerGame()">لعب سريع ضد الكمبيوتر 🤖</button>
+        <button class="btn" style="background-color: #9b59b6; width: 80%; margin-bottom: 15px;" onclick="document.getElementById('store-screen').style.display = 'flex';">متجر اللعبة والهدايا 🛒</button>
+        <button class="btn" style="background-color: #f39c12; width: 80%; margin-bottom: 15px;" onclick="openLeaderboard()">لوحة الصدارة 🏆</button>
+        <button class="btn" style="background-color: #34495e; width: 80%; margin-bottom: 15px;" onclick="openProfileModal()">الملف الشخصي 👤</button>
+    </div>
+
+    <!-- شاشة اللعب (مصححة ومتوافقة تماماً مع game.js) -->
+    <div id="game-screen" class="screen" style="display: none; flex-direction: column; align-items: center; justify-content: space-between; padding: 10px; height: 100vh;">
+        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center; padding: 5px 10px;">
+            <div id="room-code-display" style="color: white; font-weight: bold; font-size: 0.85rem;">الغرفة: -</div>
+            <div id="opponent-cards-count" style="color: white; font-weight: bold; font-size: 0.85rem;">عدد الأوراق: 0</div>
+            <button class="btn-small" style="background: #e74c3c; padding: 5px 10px; font-size: 0.8rem;" onclick="leaveGame()">مغادرة ❌</button>
+        </div>
+        
+        <div id="opponent-hand" style="display: flex; gap: 5px; min-height: 70px; align-items: center;"></div>
+        
+        <div id="turn-indicator" style="color: white; font-weight: bold; font-size: 0.95rem; text-align: center; background: rgba(0,0,0,0.4); padding: 6px 15px; border-radius: 15px;"></div>
+
+        <div id="table-area" style="display: flex; gap: 15px; align-items: center; justify-content: center;">
+            <div id="deck" onclick="drawCard()" style="background: #34495e; color: white; padding: 15px 10px; border-radius: 8px; cursor: pointer; font-weight: bold; text-align: center;">سحب 📥</div>
+            <div id="discard-pile" class="uno-card" style="width: 65px; height: 95px; border-radius: 8px; display: flex; flex-direction: column; justify-content: space-between; padding: 5px; font-weight: bold; background: white;">الكومة</div>
+            <div id="current-color-indicator" style="width: 35px; height: 35px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>
+        </div>
+
+        <div id="my-hand-container" style="display: flex; gap: 5px; overflow-x: auto; max-width: 100%; min-height: 100px; padding: 5px;"></div>
+    </div>
+
+    <!-- نافذة اختيار اللون للبطاقات البرية -->
+    <div id="color-picker-modal" class="modal" style="display: none; background: rgba(0,0,0,0.85); z-index: 2500;">
+        <div class="modal-content" style="max-width: 280px; text-align: center;">
+            <h3 style="color: white; margin-top: 0;">اختر اللون الجديد 🎨</h3>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px;">
+                <button class="btn" style="background: #e74c3c; color: white;" onclick="selectWildColor('red')">أحمر</button>
+                <button class="btn" style="background: #3498db; color: white;" onclick="selectWildColor('blue')">أزرق</button>
+                <button class="btn" style="background: #2ecc71; color: white;" onclick="selectWildColor('green')">أخضر</button>
+                <button class="btn" style="background: #f1c40f; color: #333;" onclick="selectWildColor('yellow')">أصفر</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- باقي النوافذ (المتجر، الهدايا، تسجيل الدخول، الصدارة، البروفايل) -->
+    <div id="store-screen" class="modal" style="display: none;">
+        <div class="modal-content" style="max-height: 95vh; overflow-y: auto; padding: 15px;">
+            <div class="store-header">
+                <h2 style="text-align: center; margin-top: 0;">متجر اللعبة 🛒</h2>
+                <div class="user-profile-bar">
+                    <div class="user-info">
+                        <div class="my-avatar-preview" id="current-user-avatar"></div>
+                        <span id="store-username" style="font-weight: bold;">اللاعب</span>
+                    </div>
+                    <div class="coin-display">🪙 <span id="uno-coins-balance">0</span></div>
+                </div>
+            </div>
+
+            <div class="store-tabs">
+                <button class="tab-btn active" onclick="switchStoreTab('avatars')">الشخصيات (20)</button>
+                <button class="tab-btn" onclick="switchStoreTab('themes')">الطاولات (5)</button>
+            </div>
+
+            <div id="avatars-section" class="store-section active">
+                <div class="items-grid" id="avatars-grid"></div>
+            </div>
+
+            <div id="themes-section" class="store-section">
+                <div class="items-grid">
+                    <div class="item-card">
+                        <div class="theme-preview" style="background: radial-gradient(circle, #add8e6, #3498db);"></div>
+                        <h4>أزرق كلاسيكي</h4>
+                        <p>🪙 500</p>
+                        <button class="btn-small btn-buy" onclick="buyItem('theme', 'theme-blue', 500)">شراء</button>
+                        <button class="btn-small btn-gift" onclick="openGiftModal('theme', 'theme-blue', 500)">إهداء 🎁</button>
+                    </div>
+                    <div class="item-card">
+                        <div class="theme-preview" style="background: radial-gradient(circle, #2ecc71, #1b4d3e);"></div>
+                        <h4>أخضر كازينو</h4>
+                        <p>🪙 800</p>
+                        <button class="btn-small btn-buy" onclick="buyItem('theme', 'theme-green', 800)">شراء</button>
+                        <button class="btn-small btn-gift" onclick="openGiftModal('theme', 'theme-green', 800)">إهداء 🎁</button>
+                    </div>
+                    <div class="item-card">
+                        <div class="theme-preview" style="background: repeating-linear-gradient(45deg, #5c4033, #5c4033 10px, #4a332a 10px, #4a332a 20px);"></div>
+                        <h4>خشب فاخر</h4>
+                        <p>🪙 1200</p>
+                        <button class="btn-small btn-buy" onclick="buyItem('theme', 'theme-wood', 1200)">شراء</button>
+                        <button class="btn-small btn-gift" onclick="openGiftModal('theme', 'theme-wood', 1200)">إهداء 🎁</button>
+                    </div>
+                    <div class="item-card">
+                        <div class="theme-preview" style="background: radial-gradient(circle, #2c3e50, #0f172a);"></div>
+                        <h4>داكن فخم</h4>
+                        <p>🪙 1500</p>
+                        <button class="btn-small btn-buy" onclick="buyItem('theme', 'theme-dark', 1500)">شراء</button>
+                        <button class="btn-small btn-gift" onclick="openGiftModal('theme', 'theme-dark', 1500)">إهداء 🎁</button>
+                    </div>
+                    <div class="item-card">
+                        <div class="theme-preview" style="background: radial-gradient(circle, #8e44ad, #2c3e50);"></div>
+                        <h4>نيون جذاب</h4>
+                        <p>🪙 2000</p>
+                        <button class="btn-small btn-buy" onclick="buyItem('theme', 'theme-neon', 2000)">شراء</button>
+                        <button class="btn-small btn-gift" onclick="openGiftModal('theme', 'theme-neon', 2000)">إهداء 🎁</button>
+                    </div>
+                </div>
+            </div>
+            
+            <button class="btn" style="background-color: #7f8c8d; margin-top: 15px; width: 100%;" onclick="document.getElementById('store-screen').style.display = 'none';">إغلاق ❌</button>
+        </div>
+    </div>
+
+    <!-- نافذة إرسال الهدية -->
+    <div id="gift-modal" class="modal" style="display: none; z-index: 1500; background: rgba(0,0,0,0.9);">
+        <div class="modal-content" style="max-width: 320px; text-align: center;">
+            <h3 style="color: #9b59b6; margin-top: 0;">إرسال هدية لصديق 🎁</h3>
+            <input type="text" id="gift-target-username" placeholder="اسم حساب الصديق (Username)" style="width: 90%; margin: 0 auto 15px auto; display: block; text-align: center; padding: 8px;">
+            <button class="btn" style="background: #2ecc71; width: 100%; margin-bottom: 10px;" onclick="confirmGift()">تأكيد الإرسال ✔️</button>
+            <button class="btn" style="background: #e74c3c; width: 100%;" onclick="closeGiftModal()">إلغاء ❌</button>
+        </div>
+    </div>
+
+    <!-- شاشة تسجيل الدخول -->
+    <div id="login-modal" class="modal" style="display: none; background: rgba(0,0,0,0.85); z-index: 2000;">
+        <div class="modal-content" style="max-width: 320px; text-align: center;">
+            <h3 style="color: #3498db; margin-top: 0;">تسجيل الدخول 🔑</h3>
+            <input type="text" id="login-username" placeholder="اسم المستخدم" style="width: 90%; margin-bottom: 10px; padding: 8px;">
+            <input type="password" id="login-password" placeholder="كلمة المرور" style="width: 90%; margin-bottom: 15px; padding: 8px;">
+            <button class="btn" style="background: #2ecc71; width: 100%; margin-bottom: 8px;" onclick="submitLogin()">دخول</button>
+            <p style="font-size: 0.8rem; color: #555;">ليس لديك حساب؟ <a href="#" onclick="switchToRegister()">إنشاء حساب جديد</a></p>
+            <button class="btn" style="background: #e74c3c; width: 100%;" onclick="document.getElementById('login-modal').style.display='none'">إلغاء</button>
+        </div>
+    </div>
+
+    <!-- شاشة إنشاء حساب جديد -->
+    <div id="register-modal" class="modal" style="display: none; background: rgba(0,0,0,0.85); z-index: 2000;">
+        <div class="modal-content" style="max-width: 320px; text-align: center;">
+            <h3 style="color: #9b59b6; margin-top: 0;">إنشاء حساب جديد 📝</h3>
+            <input type="text" id="reg-username" placeholder="اسم المستخدم" style="width: 90%; margin-bottom: 10px; padding: 8px;">
+            <input type="email" id="reg-email" placeholder="البريد الإلكتروني" style="width: 90%; margin-bottom: 10px; padding: 8px;">
+            <input type="password" id="reg-password" placeholder="كلمة المرور" style="width: 90%; margin-bottom: 15px; padding: 8px;">
+            <button class="btn" style="background: #9b59b6; width: 100%; margin-bottom: 8px;" onclick="submitRegister()">تسجيل وإنشاء</button>
+            <button class="btn" style="background: #e74c3c; width: 100%;" onclick="document.getElementById('register-modal').style.display='none'">إلغاء</button>
+        </div>
+    </div>
+
+    <!-- شاشة إدخال كود التفعيل -->
+    <div id="verify-modal" class="modal" style="display: none; background: rgba(0,0,0,0.85); z-index: 2000;">
+        <div class="modal-content" style="max-width: 320px; text-align: center;">
+            <h3 style="color: #f39c12; margin-top: 0;">تفعيل البريد ✉️</h3>
+            <input type="text" id="verify-code" placeholder="أدخل كود التفعيل" style="width: 90%; margin-bottom: 15px; padding: 8px; text-align: center;">
+            <button class="btn" style="background: #f1c40f; color: #333; width: 100%; margin-bottom: 8px;" onclick="submitVerification()">تحقق وتفعيل</button>
+            <button class="btn" style="background: #e74c3c; width: 100%;" onclick="document.getElementById('verify-modal').style.display='none'">إلغاء</button>
+        </div>
+    </div>
+
+    <!-- شاشة لوحة الصدارة -->
+    <div id="leaderboard-modal" class="modal" style="display: none; background: rgba(0,0,0,0.85); z-index: 2000;">
+        <div class="modal-content" style="max-width: 340px; text-align: center; max-height: 85vh; overflow-y: auto;">
+            <h3 style="color: #f39c12; margin-top: 0;">لوحة الأبطال 🏆</h3>
+            <div id="leaderboard-list" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px;"></div>
+            <button class="btn" style="background: #e74c3c; width: 100%;" onclick="document.getElementById('leaderboard-modal').style.display='none'">إغلاق ❌</button>
+        </div>
+    </div>
+
+    <!-- شاشة البروفايل الشخصي -->
+    <div id="profile-modal" class="modal" style="display: none; background: rgba(0,0,0,0.85); z-index: 2000;">
+        <div class="modal-content" style="max-width: 340px; text-align: center; max-height: 85vh; overflow-y: auto;">
+            <h3 style="color: #34495e; margin-top: 0;">الملف الشخصي 👤</h3>
+            <div style="background: #ecf0f1; padding: 15px; border-radius: 10px; margin-bottom: 15px;">
+                <div id="profile-avatar-container" style="width: 70px; height: 70px; border-radius: 50%; border: 3px solid #3498db; margin: 0 auto 10px auto; background-size: cover;"></div>
+                <h4 id="profile-username" style="margin: 0 0 5px 0;">اسم المستخدم</h4>
+                <p id="profile-email" style="margin: 0 0 10px 0; font-size: 0.8rem; color: #7f8c8d;"></p>
+                <div style="font-weight: bold; color: #f39c12;">🪙 <span id="profile-coins">0</span></div>
+            </div>
+            <h4 style="margin: 0 0 10px 0; font-size: 0.95rem;">ممتلكاتي (Inventory) 🎒</h4>
+            <div id="profile-inventory-list" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 15px;"></div>
+            <button class="btn" style="background: #e74c3c; width: 100%;" onclick="document.getElementById('profile-modal').style.display='none'">إغلاق ❌</button>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>

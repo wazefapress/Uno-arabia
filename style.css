@@ -1,0 +1,157 @@
+body {
+    margin: 0;
+    padding: 0;
+    font-family: Tahoma, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    background-size: cover;
+}
+
+/* إجبار الوضع العمودي */
+@media screen and (orientation: landscape) {
+    body { display: none !important; }
+    #rotate-warning {
+        display: flex !important;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: #2c3e50;
+        color: white;
+        text-align: center;
+        padding: 20px;
+    }
+}
+
+.screen, .modal {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    background: rgba(0,0,0,0.8);
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 350px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.btn {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: 0.2s;
+}
+.btn:hover { opacity: 0.9; transform: scale(1.02); }
+
+/* الثيمات */
+body.theme-blue { background: radial-gradient(circle, #add8e6, #3498db); }
+body.theme-green { background: radial-gradient(circle, #2ecc71, #1b4d3e); }
+body.theme-wood { background-color: #5c4033; }
+body.theme-dark { background: radial-gradient(circle, #2c3e50, #0f172a); }
+body.theme-neon { background: radial-gradient(circle, #8e44ad, #2c3e50); }
+
+/* المتجر والـ Grid */
+.items-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    max-height: 250px;
+    overflow-y: auto;
+}
+.item-card {
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 8px;
+    text-align: center;
+}
+.theme-preview { width: 100%; height: 50px; border-radius: 6px; margin-bottom: 5px; }
+.avatar-store-img { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; }
+.store-section { display: none; }
+.store-section.active { display: block; }
+.store-tabs { display: flex; gap: 5px; margin-bottom: 10px; }
+.tab-btn { flex: 1; padding: 8px; border: none; background: #ddd; font-weight: bold; border-radius: 5px; cursor: pointer; }
+.tab-btn.active { background: #3498db; color: white; }
+
+/* لوحة الصدارة والبروفايل */
+.leaderboard-item { display: flex; align-items: center; justify-content: space-between; background: #f1f2f6; padding: 8px; border-radius: 6px; }
+.leaderboard-avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; }
+.inventory-card { background: #fff; border: 2px solid #ddd; border-radius: 6px; padding: 5px; text-align: center; cursor: pointer; }
+.inventory-card.active-item { border-color: #2ecc71; background: #e8f8f5; }
+.inventory-thumb { width: 35px; height: 35px; border-radius: 50%; margin: 0 auto 3px auto; background-size: cover; }
+/* تثبيت الصفحة بالكامل ومنع السحب أو التمرير العمودي والأفقي */
+html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    position: fixed;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* توحيد خصائص جميع الشاشات لتملأ الشاشة بالكامل بدون تمرير */
+.screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100dvh; /* يتكيف بدقة مع ارتفاع شاشة الهاتف متضمنة أشرطة المتصفح */
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+/* تنسيق شاشة اللعب لترتيب العناصر بمسافات مرنة وثابتة */
+
+#game-screen {
+    display: none;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    width: 100vw;
+    height: 100dvh;
+    /* زيادة مساحة الحشو السفلي لمنع تداخل الأوراق مع حافة الشاشة */
+    padding: 10px 10px 25px 10px; 
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+#my-hand-container {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    /* زيادة الارتفاع الأدنى قليلاً لتستوعب الأوراق بالكامل مع تأثير التكبير */
+    min-height: 110px; 
+    padding: 10px 5px;
+    box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
+    flex-shrink: 0;
+    align-items: center;
+    /* مراعاة حواف الهواتف التي تحتوي على أزرار تنقل سفلية */
+    margin-bottom: env(safe-area-inset-bottom, 5px); 
+}
