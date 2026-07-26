@@ -61,7 +61,7 @@ socket.on('gameStateUpdate', (state) => {
         wild: '#fff'
     };
 
-    // أوراق الخصم (الكمبيوتر)
+    // أوراق الخصم (لاعب AI)
     const opponentHandDiv = document.getElementById('opponent-hand');
     opponentHandDiv.innerHTML = '';
     for (let i = 0; i < state.opponentCardCount; i++) {
@@ -70,7 +70,7 @@ socket.on('gameStateUpdate', (state) => {
         cardBack.innerText = 'UNO';
         opponentHandDiv.appendChild(cardBack);
     }
-    document.getElementById('opponent-cards-count').innerText = `أوراق الكمبيوتر: ${state.opponentCardCount}`;
+    document.getElementById('opponent-cards-count').innerText = `أوراق لاعب AI: ${state.opponentCardCount}`;
 
     // كومة الإلقاء (الورقة الحالية على الطاولة)
     const discardPile = document.getElementById('discard-pile');
@@ -110,7 +110,7 @@ socket.on('gameStateUpdate', (state) => {
         turnIndicator.innerText = "دورك الآن! اختر ورقة للعب أو اسحب من الكومة.";
         turnIndicator.style.color = "#2ecc71";
     } else {
-        turnIndicator.innerText = "دور الكمبيوتر يفكر...";
+        turnIndicator.innerText = "دور لاعب AI يفكر...";
         turnIndicator.style.color = "#f1c40f";
     }
 });
